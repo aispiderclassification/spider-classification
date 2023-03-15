@@ -64,13 +64,13 @@ def main():
 
     vgg_model, spider_prediction_model = load_spider_models()
 
-    col2, col3, col4, col5 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns([0.15, 0.15, 0.15, 0.15, 1])
 
-    class_slider = col2.slider("Class Threshold", 0, 100, 20, 1)
-    family_slider = col3.slider("Family Threshold", 0, 100, 20, 1)
-    genus_slider = col4.slider("Genus Threshold", 0, 100, 20, 1)
-    species_slider = col5.slider("Species Threshold", 0, 100, 20, 1)
-    slider_values = [class_slider, family_slider, genus_slider, species_slider]
+    class_threshold = col1.number_input("Class Threshold %", 0, 100, 20, 1)
+    family_threshold = col2.number_input("Family Threshold %", 0, 100, 20, 1)
+    genus_threshold = col3.number_input("Genus Threshold %", 0, 100, 20, 1)
+    species_threshold = col4.number_input("Species Threshold %", 0, 100, 20, 1)
+    threshold_values = [class_threshold, family_threshold, genus_threshold, species_threshold]
 
     # button to run prediction
     identify_spider_btn = st.button("Identify Spider")
@@ -111,6 +111,8 @@ def main():
             genera = pd.read_csv(model_directory + "/data/unique_genera.csv")
             species = pd.read_csv(model_directory + "/data/unique_species.csv")
 
+            hierarchy_labels_df = pd.read_csv(os.path.join(current_path,"dataset","hierarchy_labels.csv"))
+
             # Convert into list format
             classes = classes.values.tolist()
             families = families.values.tolist()
@@ -150,6 +152,10 @@ def main():
 
             new_sorted_indices = [list(),list(),list(),list()]
             new_prediction_percentages = [list(),list(),list(),list()]
+
+            threshold_passer = [list(), list(), list()]
+
+            belongs_in_accepted_higher_class = True
             for i, label in enumerate(pred_label_title):
 
                 # This loop creates new lists without the indices that point to values with 'nan'
@@ -159,46 +165,82 @@ def main():
                         new_sorted_indices[i].append(sorted)
                         new_prediction_percentages[i].append(percentages)
 
-                if i > 0: # For the Family, Genus, Species label which have more than 2 classes
-                    top1_label = pred_labels[i][new_sorted_indices[i][0]]
-                    top2_label = pred_labels[i][new_sorted_indices[i][1]]
-                    top3_label = pred_labels[i][new_sorted_indices[i][2]]
+                prediction_text = f"Predicted {label}"
+                for index, prediction_conf in zip(new_sorted_indices[i], new_prediction_percentages[i]):
+                    label_name = pred_labels[i][index]
+                    percent_conf = "{:.2f}".format(prediction_conf * 100)
 
-                    top1_percent = "{:.2f}".format(new_prediction_percentages[i][0] * 100)
-                    top2_percent = "{:.2f}".format(new_prediction_percentages[i][1] * 100)
-                    top3_percent = "{:.2f}".format(new_prediction_percentages[i][2] * 100)
+                    # Checking if Family/Genus/Species belongs to one of the classes higher in the hierarchy that passed the set threshold
+                    if i > 0:
+                        belongs_in_accepted_higher_class = False
+                        for passed_previous_label in threshold_passer[i-1]:
+                            if belongs_in_accepted_higher_class:
+                                break
+                            threshold_df = hierarchy_labels_df.iloc[:, [i-1, i]]
+                            for h, h2 in zip(threshold_df.iloc[:, 0], threshold_df.iloc[:, 1]):
+                                if h == passed_previous_label and h2 == label_name:
+                                    belongs_in_accepted_higher_class = True
+                                    break
 
-                    prediction1 = f"Predicted {label}: #1 {top1_label} ({top1_percent}%)"
-                    prediction2 = f" | #2 {top2_label} ({top2_percent}%)"
-                    prediction3 = f" | #3 {top3_label} ({top3_percent}%)"
 
-                    prediction_message = f"No {label} prediction passed the set threshold"
-                    if slider_values[i] < (new_prediction_percentages[i][0] * 100):
-                        prediction_message = prediction1
-                        if slider_values[i] < (new_prediction_percentages[i][1] * 100):
-                            prediction_message += prediction2
-                            if slider_values[i] < (new_prediction_percentages[i][2] * 100):
-                                prediction_message += prediction3
+                    # Compare prediction confidence with threshold value
+                    if belongs_in_accepted_higher_class:
+                        if threshold_values[i] < (prediction_conf * 100):
+                            prediction_text += f" | {label_name} ({percent_conf}%)"
+                            if 3 > i:
+                                threshold_passer[i].append(f"{label_name}")
 
-                    st.write(prediction_message)
+                        else:
+                            # prediction_text += f" | No definite {label} (Highest confidence is {label_name}: {percent_conf}% / {threshold_values[i]}%)"
+                            prediction_text += " | <>"
+                            break
 
-                else: # For the Class label which only has 2 classes
-                    top1_label = pred_labels[i][new_sorted_indices[i][0]]
-                    top2_label = pred_labels[i][new_sorted_indices[i][1]]
+                    else:
+                        prediction_text += f" | No predicted '{label}' belonging in previous higher classification."
+                        break
 
-                    top1_percent = "{:.2f}".format(new_prediction_percentages[i][0] * 100)
-                    top2_percent = "{:.2f}".format(new_prediction_percentages[i][1] * 100)
 
-                    prediction1 = f"Predicted {label}: #1 {top1_label} ({top1_percent}%)"
-                    prediction2 = f" | #2 {top2_label} ({top2_percent}%)"
-
-                    prediction_message = f"No {label} prediction passed the set threshold."
-                    if slider_values[i] < (new_prediction_percentages[i][0] * 100):
-                        prediction_message = prediction1
-                        if slider_values[i] < (new_prediction_percentages[i][1] * 100):
-                            prediction_message += prediction2
-
-                    st.write(prediction_message)
+                st.write(prediction_text)
+                # if i > 0: # For the Family, Genus, Species label which have more than 2 classes
+                #     top1_label = pred_labels[i][new_sorted_indices[i][0]]
+                #     top2_label = pred_labels[i][new_sorted_indices[i][1]]
+                #     top3_label = pred_labels[i][new_sorted_indices[i][2]]
+                #
+                #     top1_percent = "{:.2f}".format(new_prediction_percentages[i][0] * 100)
+                #     top2_percent = "{:.2f}".format(new_prediction_percentages[i][1] * 100)
+                #     top3_percent = "{:.2f}".format(new_prediction_percentages[i][2] * 100)
+                #
+                #     prediction1 = f"Predicted {label}: #1 {top1_label} ({top1_percent}%)"
+                #     prediction2 = f" | #2 {top2_label} ({top2_percent}%)"
+                #     prediction3 = f" | #3 {top3_label} ({top3_percent}%)"
+                #
+                #     prediction_message = f"No {label} prediction passed the set threshold"
+                #     if threshold_values[i] < (new_prediction_percentages[i][0] * 100):
+                #         prediction_message = prediction1
+                #         if threshold_values[i] < (new_prediction_percentages[i][1] * 100):
+                #             prediction_message += prediction2
+                #             if threshold_values[i] < (new_prediction_percentages[i][2] * 100):
+                #                 prediction_message += prediction3
+                #
+                #     st.write(prediction_message)
+                #
+                # else: # For the Class label which only has 2 classes
+                #     top1_label = pred_labels[i][new_sorted_indices[i][0]]
+                #     top2_label = pred_labels[i][new_sorted_indices[i][1]]
+                #
+                #     top1_percent = "{:.2f}".format(new_prediction_percentages[i][0] * 100)
+                #     top2_percent = "{:.2f}".format(new_prediction_percentages[i][1] * 100)
+                #
+                #     prediction1 = f"Predicted {label}: #1 {top1_label} ({top1_percent}%)"
+                #     prediction2 = f" | #2 {top2_label} ({top2_percent}%)"
+                #
+                #     prediction_message = f"No {label} prediction passed the set threshold."
+                #     if threshold_values[i] < (new_prediction_percentages[i][0] * 100):
+                #         prediction_message = prediction1
+                #         if threshold_values[i] < (new_prediction_percentages[i][1] * 100):
+                #             prediction_message += prediction2
+                #
+                #     st.write(prediction_message)
         # TODO
         # 1. Display next highest confidence score if not in selected location
         # ex. family A is 60% confident but not in Location B, family B is 35% confident but is in location B, then display Family B
